@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
-import type { CurrentUser } from "./types";
+import type { CurrentUser, DataScope } from "./types";
 
 // Entitlement = (role, module, capability, dataScope) — spec principle 3.
 // Every list query must go through scopeFilter() rather than re-deriving
@@ -27,11 +27,7 @@ export async function can(user: CurrentUser, moduleId: string, capability = "vie
   return true;
 }
 
-export async function getDataScope(
-  user: CurrentUser,
-  moduleId: string,
-  capability = "view"
-): Promise<"OWN" | "TEAM" | "GLOBAL" | "NONE"> {
+export async function getDataScope(user: CurrentUser, moduleId: string, capability = "view"): Promise<DataScope> {
   const entitlement = await prisma.entitlement.findUnique({
     where: { role_moduleId_capability: { role: user.role, moduleId, capability } },
   });

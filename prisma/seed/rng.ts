@@ -1,6 +1,13 @@
 // Deterministic PRNG (mulberry32) so `db:reset` reproduces the identical demo dataset every run.
 const SEED = 88172645;
 
+// All "now"-relative seed data anchors to this fixed date rather than the
+// real wall clock. Using `new Date()` here would make output depend on
+// exactly when `db:reset` runs (e.g. whether a lead's SLA counts as
+// breached shifts by execution time), which breaks the "reproduces the
+// identical demo dataset every time" requirement.
+export const SEED_NOW = new Date("2026-08-01T12:00:00.000Z");
+
 function mulberry32(seed: number) {
   let a = seed;
   return function random() {
@@ -37,14 +44,14 @@ export function createRng() {
     },
     daysAgo: (max: number, min = 0) => {
       const days = Math.floor(random() * (max - min + 1)) + min;
-      const d = new Date();
+      const d = new Date(SEED_NOW);
       d.setDate(d.getDate() - days);
       d.setHours(random() * 24, random() * 60, 0, 0);
       return d;
     },
     daysFromNow: (max: number, min = 0) => {
       const days = Math.floor(random() * (max - min + 1)) + min;
-      const d = new Date();
+      const d = new Date(SEED_NOW);
       d.setDate(d.getDate() + days);
       d.setHours(random() * 24, random() * 60, 0, 0);
       return d;
