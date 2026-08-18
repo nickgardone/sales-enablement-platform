@@ -8,6 +8,8 @@ import type { CurrentUser } from "@/lib/platform/types";
 import { recordAuditEvent } from "@/lib/services/audit";
 import { emitSignal } from "@/lib/services/signals";
 import { submitExceptionRequest } from "@/lib/modules/pricing-exceptions/actions";
+import { logPitch as canonicalLogPitch } from "@/lib/modules/pitching/actions";
+import { createOpportunity as canonicalCreateOpportunity } from "@/lib/modules/closing-deals/actions";
 
 const MODULE_ID = "dealer-account-360";
 
@@ -61,6 +63,9 @@ export async function logInteraction(input: {
   return interaction;
 }
 
+// Delegates to the canonical implementation in the pitching module (spec
+// principle 4) — a "use server" file can only export async function
+// declarations, not re-export bindings, hence the thin wrapper.
 export async function logPitch(input: {
   rooftopId: string;
   contactId: string;
@@ -68,38 +73,9 @@ export async function logPitch(input: {
   outcome: "POSITIVE" | "NEUTRAL" | "DECLINED" | "FOLLOW_UP_NEEDED";
   objection: string | null;
 }) {
-  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
-  const associateId = resolveAssociateId(user, rooftop);
-
-  const pitch = await prisma.pitch.create({
-    data: {
-      rooftopId: input.rooftopId,
-      contactId: input.contactId,
-      associateId,
-      productPitched: input.productPitched,
-      outcome: input.outcome,
-      objection: input.objection,
-      occurredAt: new Date(),
-    },
-  });
-
-  await emitSignal({
-    type: "pitch.logged",
-    payload: { pitchId: pitch.id, rooftopId: input.rooftopId, associateId, outcome: pitch.outcome },
-    sourceModule: MODULE_ID,
-    entityType: "Pitch",
-    entityId: pitch.id,
-  });
-  await recordAuditEvent({
-    actor: user,
-    action: "pitch.logged",
-    entityType: "Pitch",
-    entityId: pitch.id,
-    after: { outcome: pitch.outcome, productPitched: pitch.productPitched },
-  });
-
+  const result = await canonicalLogPitch(input);
   revalidatePath(`/accounts/${input.rooftopId}`);
-  return pitch;
+  return result;
 }
 
 export async function shareContent(input: { rooftopId: string; contactId: string | null; contentAssetId: string }) {
@@ -150,43 +126,16 @@ export async function startExceptionRequest(input: {
   return submitExceptionRequest(input);
 }
 
+// Delegates to the canonical implementation in the closing-deals module
+// (spec principle 4) — a "use server" file can only export async function
+// declarations, not re-export bindings, hence the thin wrapper.
 export async function createOpportunity(input: {
   rooftopId: string;
   productType: "FINANCING" | "SOFTWARE";
   expectedValue: number;
   closeDate: string;
 }) {
-  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
-  const associateId = resolveAssociateId(user, rooftop);
-
-  const prospectingStage = await prisma.dealStage.findFirstOrThrow({ where: { sortOrder: 1 } });
-
-  const opportunity = await prisma.opportunity.create({
-    data: {
-      rooftopId: input.rooftopId,
-      associateId,
-      productType: input.productType,
-      dealStageId: prospectingStage.id,
-      expectedValue: input.expectedValue,
-      closeDate: new Date(input.closeDate),
-    },
-  });
-
-  await emitSignal({
-    type: "opportunity.stage.changed",
-    payload: { opportunityId: opportunity.id, rooftopId: input.rooftopId, stage: prospectingStage.name },
-    sourceModule: "closing-deals",
-    entityType: "Opportunity",
-    entityId: opportunity.id,
-  });
-  await recordAuditEvent({
-    actor: user,
-    action: "opportunity.created",
-    entityType: "Opportunity",
-    entityId: opportunity.id,
-    after: { productType: input.productType, expectedValue: input.expectedValue, stage: prospectingStage.name },
-  });
-
+  const result = await canonicalCreateOpportunity(input);
   revalidatePath(`/accounts/${input.rooftopId}`);
-  return opportunity;
+  return result;
 }
