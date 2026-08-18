@@ -1,0 +1,234 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/lib/generated/prisma/client";
+import { getCurrentUser } from "@/lib/platform/current-user";
+import { can } from "@/lib/platform/entitlements";
+import type { CurrentUser } from "@/lib/platform/types";
+import { recordAuditEvent } from "@/lib/services/audit";
+import { emitSignal } from "@/lib/services/signals";
+import { submitForApproval } from "@/lib/services/approvals";
+
+const MODULE_ID = "dealer-account-360";
+
+async function requireAccountAccess(rooftopId: string) {
+  const user = await getCurrentUser();
+  const allowed = await can(user, MODULE_ID, "view");
+  if (!allowed) throw new Error("Not authorized: Account 360 access required.");
+
+  const rooftop = await prisma.rooftop.findUniqueOrThrow({ where: { id: rooftopId } });
+  return { user, rooftop };
+}
+
+// Interactions/pitches/exceptions/opportunities attribute to the account's
+// assigned rep — this lets a leader log activity from an associate's
+// Account 360 page without the record misattributing to the leader.
+function resolveAssociateId(user: CurrentUser, rooftop: { assignedAssociateId: string | null }) {
+  if (rooftop.assignedAssociateId) return rooftop.assignedAssociateId;
+  if (user.associateId) return user.associateId;
+  throw new Error("This rooftop has no assigned associate to attribute this action to.");
+}
+
+export async function logInteraction(input: {
+  rooftopId: string;
+  contactId: string | null;
+  type: "VISIT" | "CALL" | "EMAIL" | "VIRTUAL";
+  notes: string | null;
+}) {
+  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
+  const associateId = resolveAssociateId(user, rooftop);
+
+  const interaction = await prisma.interaction.create({
+    data: {
+      rooftopId: input.rooftopId,
+      contactId: input.contactId,
+      associateId,
+      type: input.type,
+      notes: input.notes,
+      occurredAt: new Date(),
+    },
+  });
+
+  await recordAuditEvent({
+    actor: user,
+    action: "interaction.logged",
+    entityType: "Interaction",
+    entityId: interaction.id,
+    after: { type: interaction.type, rooftopId: input.rooftopId },
+  });
+
+  revalidatePath(`/accounts/${input.rooftopId}`);
+  return interaction;
+}
+
+export async function logPitch(input: {
+  rooftopId: string;
+  contactId: string;
+  productPitched: "FINANCING" | "SOFTWARE";
+  outcome: "POSITIVE" | "NEUTRAL" | "DECLINED" | "FOLLOW_UP_NEEDED";
+  objection: string | null;
+}) {
+  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
+  const associateId = resolveAssociateId(user, rooftop);
+
+  const pitch = await prisma.pitch.create({
+    data: {
+      rooftopId: input.rooftopId,
+      contactId: input.contactId,
+      associateId,
+      productPitched: input.productPitched,
+      outcome: input.outcome,
+      objection: input.objection,
+      occurredAt: new Date(),
+    },
+  });
+
+  await emitSignal({
+    type: "pitch.logged",
+    payload: { pitchId: pitch.id, rooftopId: input.rooftopId, associateId, outcome: pitch.outcome },
+    sourceModule: MODULE_ID,
+    entityType: "Pitch",
+    entityId: pitch.id,
+  });
+  await recordAuditEvent({
+    actor: user,
+    action: "pitch.logged",
+    entityType: "Pitch",
+    entityId: pitch.id,
+    after: { outcome: pitch.outcome, productPitched: pitch.productPitched },
+  });
+
+  revalidatePath(`/accounts/${input.rooftopId}`);
+  return pitch;
+}
+
+export async function shareContent(input: { rooftopId: string; contactId: string | null; contentAssetId: string }) {
+  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
+  const associateId = resolveAssociateId(user, rooftop);
+
+  const share = await prisma.contentShare.create({
+    data: {
+      contentAssetId: input.contentAssetId,
+      rooftopId: input.rooftopId,
+      contactId: input.contactId,
+      sharedById: associateId,
+      sharedAt: new Date(),
+    },
+  });
+
+  await emitSignal({
+    type: "content.shared",
+    payload: { contentShareId: share.id, contentAssetId: input.contentAssetId, rooftopId: input.rooftopId },
+    sourceModule: "enablement-content",
+    entityType: "ContentShare",
+    entityId: share.id,
+  });
+  await recordAuditEvent({
+    actor: user,
+    action: "content.shared",
+    entityType: "ContentShare",
+    entityId: share.id,
+    after: { contentAssetId: input.contentAssetId, rooftopId: input.rooftopId },
+  });
+
+  revalidatePath(`/accounts/${input.rooftopId}`);
+  return share;
+}
+
+export async function startExceptionRequest(input: {
+  rooftopId: string;
+  contactId: string | null;
+  requestType: "RATE_EXCEPTION" | "PROGRAM_TIER_CHANGE" | "TERM_EXTENSION" | "FEE_WAIVER";
+  dollarAmount: number;
+  rationale: string;
+}) {
+  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
+  const associateId = resolveAssociateId(user, rooftop);
+
+  const exceptionRequest = await prisma.exceptionRequest.create({
+    data: {
+      rooftopId: input.rooftopId,
+      contactId: input.contactId,
+      associateId,
+      requestType: input.requestType,
+      requestedTerms: {} as Prisma.InputJsonValue,
+      rationale: input.rationale,
+      dollarAmount: input.dollarAmount,
+    },
+  });
+
+  // First real caller of the approvals service (spec principle 4) outside of seed data —
+  // routes through the same selectPolicy() logic the admin console's routing tester exercises.
+  const { approvalRequest } = await submitForApproval({
+    triggerType: "EXCEPTION_REQUEST",
+    triggerEntityId: exceptionRequest.id,
+    requestedById: user.id,
+    context: { amount: input.dollarAmount },
+  });
+
+  await prisma.exceptionRequest.update({
+    where: { id: exceptionRequest.id },
+    data: { approvalRequestId: approvalRequest.id },
+  });
+
+  await emitSignal({
+    type: "exception.submitted",
+    payload: { exceptionRequestId: exceptionRequest.id, rooftopId: input.rooftopId, amount: input.dollarAmount, requestType: input.requestType },
+    sourceModule: "pricing-exceptions",
+    entityType: "ExceptionRequest",
+    entityId: exceptionRequest.id,
+  });
+  await recordAuditEvent({
+    actor: user,
+    action: "exception.submitted",
+    entityType: "ExceptionRequest",
+    entityId: exceptionRequest.id,
+    after: { requestType: input.requestType, dollarAmount: input.dollarAmount },
+    complianceRelevant: true,
+  });
+
+  revalidatePath(`/accounts/${input.rooftopId}`);
+  return exceptionRequest;
+}
+
+export async function createOpportunity(input: {
+  rooftopId: string;
+  productType: "FINANCING" | "SOFTWARE";
+  expectedValue: number;
+  closeDate: string;
+}) {
+  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
+  const associateId = resolveAssociateId(user, rooftop);
+
+  const prospectingStage = await prisma.dealStage.findFirstOrThrow({ where: { sortOrder: 1 } });
+
+  const opportunity = await prisma.opportunity.create({
+    data: {
+      rooftopId: input.rooftopId,
+      associateId,
+      productType: input.productType,
+      dealStageId: prospectingStage.id,
+      expectedValue: input.expectedValue,
+      closeDate: new Date(input.closeDate),
+    },
+  });
+
+  await emitSignal({
+    type: "opportunity.stage.changed",
+    payload: { opportunityId: opportunity.id, rooftopId: input.rooftopId, stage: prospectingStage.name },
+    sourceModule: "closing-deals",
+    entityType: "Opportunity",
+    entityId: opportunity.id,
+  });
+  await recordAuditEvent({
+    actor: user,
+    action: "opportunity.created",
+    entityType: "Opportunity",
+    entityId: opportunity.id,
+    after: { productType: input.productType, expectedValue: input.expectedValue, stage: prospectingStage.name },
+  });
+
+  revalidatePath(`/accounts/${input.rooftopId}`);
+  return opportunity;
+}

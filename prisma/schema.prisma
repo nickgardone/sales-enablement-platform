@@ -180,6 +180,7 @@ model Rooftop {
   crossSellSignals   CrossSellSignal[]
   onboardingCases    OnboardingCase[]
   escalations        Escalation[]
+  contentShares      ContentShare[]
 
   @@index([territoryId])
   @@index([assignedAssociateId])
@@ -204,6 +205,7 @@ model Contact {
   interactions      Interaction[]
   pitches           Pitch[]
   exceptionRequests ExceptionRequest[]
+  contentShares     ContentShare[]
 
   @@index([dealerGroupId])
   @@index([rooftopId])
@@ -270,6 +272,7 @@ model Associate {
   opportunities     Opportunity[]
   exceptionRequests ExceptionRequest[]
   onboardingCases   OnboardingCase[]
+  contentSharesLogged ContentShare[]
 
   @@index([teamId])
 }
@@ -702,7 +705,26 @@ model ContentAsset {
   lastVerifiedAt DateTime
   createdAt      DateTime  @default(now())
 
+  shares ContentShare[]
+
   @@index([lastVerifiedAt])
+}
+
+model ContentShare {
+  id             String   @id @default(cuid())
+  contentAssetId String
+  rooftopId      String
+  contactId      String?
+  sharedById     String
+  sharedAt       DateTime @default(now())
+
+  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id])
+  rooftop      Rooftop      @relation(fields: [rooftopId], references: [id])
+  contact      Contact?     @relation(fields: [contactId], references: [id])
+  sharedBy     Associate    @relation(fields: [sharedById], references: [id])
+
+  @@index([rooftopId])
+  @@index([contentAssetId])
 }
 
 model Playbook {

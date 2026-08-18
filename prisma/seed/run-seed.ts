@@ -90,6 +90,7 @@ function rooftopName(groupName: string, city: string, brand: string | null) {
 async function clearDatabase() {
   // Delete in FK-safe order (children before parents) so `db:seed` is idempotent standalone.
   await prisma.metricSnapshot.deleteMany();
+  await prisma.contentShare.deleteMany();
   await prisma.signal.deleteMany();
   await prisma.auditEvent.deleteMany();
   await prisma.crossSellSignal.deleteMany();
@@ -1020,69 +1021,118 @@ export async function runSeed() {
   // MetricSnapshot history (mixing LIVE and LEGACY_BATCH freshness)
   // ---------------------------------------------------------------
   console.log("Seeding metric snapshot history...");
-  const metricKeys = ["applications_submitted", "funded_volume", "funding_cycle_time_days", "look_to_book_rate"];
   const now = SEED_NOW;
+  const WEEKS_OF_HISTORY = 12;
+  const BATCH = 200;
 
-  for (const rooftop of demoBook) {
-    for (const metricKey of metricKeys) {
-      for (let week = 12; week >= 0; week--) {
-        const asOf = new Date(now);
-        asOf.setDate(asOf.getDate() - week * 7);
-        const isLatestWeek = week === 0;
-        const isStaleMetric = metricKey === "funding_cycle_time_days" || metricKey === "look_to_book_rate";
-        const source: "LIVE" | "LEGACY_BATCH" = isLatestWeek && isStaleMetric ? "LEGACY_BATCH" : "LIVE";
-        const asOfAdjusted = source === "LEGACY_BATCH" ? new Date(asOf.getTime() - rng.int(4, 20) * 3600 * 1000) : asOf;
-        const freshnessSeconds = Math.max(60, Math.round((now.getTime() - asOfAdjusted.getTime()) / 1000));
-        const value = metricKey === "applications_submitted" ? rng.float(2, 18, 0)
-          : metricKey === "funded_volume" ? rng.float(15000, 180000, 0)
-          : metricKey === "funding_cycle_time_days" ? rng.float(3, 14, 1)
-          : rng.float(35, 78, 1);
-        await prisma.metricSnapshot.create({
-          data: { metricKey, entityType: "ROOFTOP", entityId: rooftop.id, value, source, asOf: asOfAdjusted, freshnessSeconds },
-        });
-      }
-    }
+  type MetricSnapshotRow = {
+    metricKey: string;
+    entityType: "ROOFTOP" | "ASSOCIATE" | "TEAM";
+    entityId: string;
+    value: number;
+    source: "LIVE" | "LEGACY_BATCH";
+    asOf: Date;
+    freshnessSeconds: number;
+  };
+  const metricSnapshotRows: MetricSnapshotRow[] = [];
+
+  function weekAsOf(week: number) {
+    const asOf = new Date(now);
+    asOf.setDate(asOf.getDate() - week * 7);
+    return asOf;
   }
 
-  for (const associate of associates) {
-    for (const metricKey of ["applications_submitted", "funded_volume"]) {
-      for (let week = 12; week >= 0; week--) {
-        const asOf = new Date(now);
-        asOf.setDate(asOf.getDate() - week * 7);
-        await prisma.metricSnapshot.create({
-          data: {
-            metricKey,
-            entityType: "ASSOCIATE",
-            entityId: associate.id,
-            value: metricKey === "applications_submitted" ? rng.float(20, 90, 0) : rng.float(80000, 650000, 0),
-            source: "LIVE",
-            asOf,
-            freshnessSeconds: Math.max(60, Math.round((now.getTime() - asOf.getTime()) / 1000)),
-          },
-        });
-      }
-    }
+  function pushSnapshot(
+    metricKey: string,
+    entityType: MetricSnapshotRow["entityType"],
+    entityId: string,
+    week: number,
+    value: number,
+    makeStaleOnLatest: boolean
+  ) {
+    const asOf = weekAsOf(week);
+    const isLatestWeek = week === 0;
+    const source: "LIVE" | "LEGACY_BATCH" = isLatestWeek && makeStaleOnLatest ? "LEGACY_BATCH" : "LIVE";
+    const asOfAdjusted = source === "LEGACY_BATCH" ? new Date(asOf.getTime() - rng.int(4, 20) * 3600 * 1000) : asOf;
+    const freshnessSeconds = Math.max(60, Math.round((now.getTime() - asOfAdjusted.getTime()) / 1000));
+    metricSnapshotRows.push({ metricKey, entityType, entityId, value, source, asOf: asOfAdjusted, freshnessSeconds });
   }
 
-  for (const metricKey of ["applications_submitted", "funded_volume", "look_to_book_rate"]) {
-    for (let week = 12; week >= 0; week--) {
-      const asOf = new Date(now);
-      asOf.setDate(asOf.getDate() - week * 7);
-      const isLatest = week === 0;
-      const source: "LIVE" | "LEGACY_BATCH" = isLatest ? "LEGACY_BATCH" : "LIVE";
-      const asOfAdjusted = source === "LEGACY_BATCH" ? new Date(asOf.getTime() - rng.int(4, 12) * 3600 * 1000) : asOf;
-      await prisma.metricSnapshot.create({
-        data: {
-          metricKey,
-          entityType: "TEAM",
-          entityId: team.id,
-          value: metricKey === "applications_submitted" ? rng.float(120, 400, 0) : metricKey === "funded_volume" ? rng.float(500000, 3000000, 0) : rng.float(40, 70, 1),
-          source,
-          asOf: asOfAdjusted,
-          freshnessSeconds: Math.max(60, Math.round((now.getTime() - asOfAdjusted.getTime()) / 1000)),
-        },
+  // Fixed lender roster for competitive-position tracking; "us" carries a
+  // higher prior weight so the demo book skews toward (but isn't dominated
+  // by) the platform's own lender, leaving room for the cross-sell narrative.
+  const LENDERS = [
+    { slug: "us", weight: 3 },
+    { slug: "regional_credit_union", weight: 2 },
+    { slug: "captive_oem_finance", weight: 2 },
+    { slug: "national_finance_co", weight: 1.5 },
+    { slug: "other", weight: 1 },
+  ] as const;
+
+  for (const rooftop of rooftopsWithAssociate) {
+    // Core performance metrics, trended weekly across the full 180-rooftop book
+    // (not just the demo associate's 30), so any account can render a full trend.
+    for (let week = WEEKS_OF_HISTORY; week >= 0; week--) {
+      pushSnapshot("applications_submitted", "ROOFTOP", rooftop.id, week, rng.float(2, 18, 0), false);
+      pushSnapshot("funded_volume", "ROOFTOP", rooftop.id, week, rng.float(15000, 180000, 0), false);
+      pushSnapshot("funding_cycle_time_days", "ROOFTOP", rooftop.id, week, rng.float(3, 14, 1), true);
+      pushSnapshot("look_to_book_rate", "ROOFTOP", rooftop.id, week, rng.float(35, 78, 1), true);
+      pushSnapshot("lead_to_sale_conversion_rate", "ROOFTOP", rooftop.id, week, rng.float(15, 45, 1), true);
+    }
+
+    // Relationship health: a rooftop-level baseline with a gentle weekly random walk.
+    let health = rng.float(35, 95, 1);
+    for (let week = WEEKS_OF_HISTORY; week >= 0; week--) {
+      health = Math.min(99, Math.max(5, health + rng.float(-4, 4, 1)));
+      pushSnapshot("relationship_health", "ROOFTOP", rooftop.id, week, health, false);
+    }
+
+    // Lender mix / competitive position: shares drift week over week and always sum to 100.
+    const rawWeights = LENDERS.map((l) => l.weight * rng.float(0.5, 1.5, 2));
+    const rawSum = rawWeights.reduce((a, b) => a + b, 0);
+    let shares = rawWeights.map((w) => w / rawSum);
+    for (let week = WEEKS_OF_HISTORY; week >= 0; week--) {
+      const jittered = shares.map((s) => Math.max(0.02, s + rng.float(-0.02, 0.02, 3)));
+      const jitteredSum = jittered.reduce((a, b) => a + b, 0);
+      shares = jittered.map((s) => s / jitteredSum);
+      LENDERS.forEach((lender, i) => {
+        pushSnapshot(`lender_share:${lender.slug}`, "ROOFTOP", rooftop.id, week, Math.round(shares[i] * 1000) / 10, false);
       });
     }
+  }
+  console.log(`Prepared metrics for ${rooftopsWithAssociate.length} rooftops.`);
+
+  for (const associate of associates) {
+    for (const metricKey of ["applications_submitted", "funded_volume"] as const) {
+      for (let week = WEEKS_OF_HISTORY; week >= 0; week--) {
+        pushSnapshot(
+          metricKey,
+          "ASSOCIATE",
+          associate.id,
+          week,
+          metricKey === "applications_submitted" ? rng.float(20, 90, 0) : rng.float(80000, 650000, 0),
+          false
+        );
+      }
+    }
+  }
+
+  for (const metricKey of ["applications_submitted", "funded_volume", "look_to_book_rate"] as const) {
+    for (let week = WEEKS_OF_HISTORY; week >= 0; week--) {
+      pushSnapshot(
+        metricKey,
+        "TEAM",
+        team.id,
+        week,
+        metricKey === "applications_submitted" ? rng.float(120, 400, 0) : metricKey === "funded_volume" ? rng.float(500000, 3000000, 0) : rng.float(40, 70, 1),
+        metricKey === "look_to_book_rate"
+      );
+    }
+  }
+
+  console.log(`Writing ${metricSnapshotRows.length} metric snapshots...`);
+  for (let i = 0; i < metricSnapshotRows.length; i += BATCH) {
+    await prisma.metricSnapshot.createMany({ data: metricSnapshotRows.slice(i, i + BATCH) });
   }
 
   // ---------------------------------------------------------------
@@ -1091,10 +1141,11 @@ export async function runSeed() {
   console.log("Seeding content library...");
   const contentVariants = ["Overview", "Field Guide"];
   let contentCount = 0;
+  const contentAssets: Awaited<ReturnType<typeof prisma.contentAsset.create>>[] = [];
   for (const topic of CONTENT_ASSET_TOPICS) {
     for (const variant of contentVariants) {
       const isStale = contentCount % 5 === 0;
-      await prisma.contentAsset.create({
+      const asset = await prisma.contentAsset.create({
         data: {
           title: `${topic} — ${variant}`,
           assetType: variant === "Overview" ? "ONE_PAGER" : "PLAYBOOK",
@@ -1105,6 +1156,7 @@ export async function runSeed() {
           lastVerifiedAt: isStale ? rng.daysAgo(240, 120) : rng.daysAgo(30, 0),
         },
       });
+      contentAssets.push(asset);
       contentCount++;
     }
   }
@@ -1136,6 +1188,49 @@ export async function runSeed() {
     prisma.certification.create({ data: { name: "Dealer CRM Suite Certification", programId: softwareProgram.id, description: "Required to demo and sell the software product." } }),
     prisma.certification.create({ data: { name: "Platform Fundamentals", programId: null, description: "General onboarding certification for all new associates." } }),
   ]);
+
+  // ---------------------------------------------------------------
+  // Content shares (Account 360 activity feed + inline "share content" action)
+  // ---------------------------------------------------------------
+  console.log("Seeding content shares...");
+  const contentShareTargets = rng.pickMany(rooftopsWithAssociate, 90);
+  let contentShareCount = 0;
+  for (const rooftop of contentShareTargets) {
+    const associate = associateForRooftop(rooftop as unknown as RooftopRecord);
+    const rooftopContacts = allContacts.filter((c) => c.rooftopId === rooftop.id);
+    const contact = rooftopContacts.length > 0 && rng.bool(0.7) ? rng.pick(rooftopContacts) : null;
+    const asset = rng.pick(contentAssets);
+    const sharedAt = rng.daysAgo(90, 0);
+    const share = await prisma.contentShare.create({
+      data: {
+        contentAssetId: asset.id,
+        rooftopId: rooftop.id,
+        contactId: contact?.id ?? null,
+        sharedById: associate.id,
+        sharedAt,
+      },
+    });
+    contentShareCount++;
+    emitSignal({
+      type: "content.shared",
+      payload: { contentShareId: share.id, contentAssetId: asset.id, rooftopId: rooftop.id },
+      sourceModule: "enablement-content",
+      entityType: "ContentShare",
+      entityId: share.id,
+      emittedAt: sharedAt,
+    });
+    emitAudit({
+      actorId: associate.userId,
+      actorRole: "SALES_ASSOCIATE",
+      action: "content.shared",
+      entityType: "ContentShare",
+      entityId: share.id,
+      after: { contentAssetId: asset.id, rooftopId: rooftop.id },
+      timestamp: sharedAt,
+      complianceRelevant: false,
+    });
+  }
+  console.log(`Created ${contentShareCount} content shares.`);
 
   // ---------------------------------------------------------------
   // Platform: Entitlement + ModuleManifest (drives nav + scope filtering)
@@ -1195,7 +1290,6 @@ export async function runSeed() {
   // Bulk-insert Signals and AuditEvents
   // ---------------------------------------------------------------
   console.log(`Writing ${signals.length} signals and ${auditEvents.length} audit events...`);
-  const BATCH = 200;
   for (let i = 0; i < signals.length; i += BATCH) {
     await prisma.signal.createMany({ data: signals.slice(i, i + BATCH) });
   }
