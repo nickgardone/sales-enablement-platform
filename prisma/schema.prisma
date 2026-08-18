@@ -1,0 +1,777 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum UserRole {
+  SALES_ASSOCIATE
+  SALES_LEADER
+  ADMIN
+}
+
+enum ContactPersona {
+  DEALER_PRINCIPAL
+  GENERAL_MANAGER
+  SALES_DESK_MANAGER
+  FI_MANAGER
+  BDC_MANAGER
+  INTERNET_MANAGER
+}
+
+enum FranchiseType {
+  FRANCHISE
+  INDEPENDENT
+}
+
+enum ProductType {
+  FINANCING
+  SOFTWARE
+}
+
+enum InteractionType {
+  VISIT
+  CALL
+  EMAIL
+  VIRTUAL
+}
+
+enum PitchOutcome {
+  POSITIVE
+  NEUTRAL
+  DECLINED
+  FOLLOW_UP_NEEDED
+}
+
+enum PitchGoalOwnerType {
+  ASSOCIATE
+  TEAM
+}
+
+enum LeadStatus {
+  NEW
+  ROUTED
+  IN_PROGRESS
+  CONVERTED
+  LOST
+}
+
+enum StipStatus {
+  OUTSTANDING
+  CLEARED
+  WAIVED
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  IN_UNDERWRITING
+  CONDITIONALLY_APPROVED
+  APPROVED
+  DECLINED
+  FUNDED
+}
+
+enum ExceptionRequestType {
+  RATE_EXCEPTION
+  PROGRAM_TIER_CHANGE
+  TERM_EXTENSION
+  FEE_WAIVER
+}
+
+enum CrossSellStatus {
+  OPEN
+  DISMISSED
+  ACTIONED
+}
+
+enum ApprovalTriggerType {
+  EXCEPTION_REQUEST
+  TIER_CHANGE
+  ONBOARDING_CASE
+  ESCALATION
+}
+
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+  DELEGATED
+}
+
+enum DataScope {
+  OWN
+  TEAM
+  GLOBAL
+  NONE
+}
+
+enum MetricSource {
+  LIVE
+  LEGACY_BATCH
+  COMPUTED
+}
+
+enum OnboardingStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  COMPLETE
+}
+
+enum EscalationStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+// ============================================================
+// Accounts & people
+// ============================================================
+
+model DealerGroup {
+  id        String   @id @default(cuid())
+  name      String
+  region    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rooftops Rooftop[]
+  contacts Contact[]
+}
+
+model Rooftop {
+  id                 String        @id @default(cuid())
+  dealerGroupId      String
+  name               String
+  franchiseType      FranchiseType
+  oemBrand           String?
+  region             String
+  territoryId        String
+  assignedAssociateId String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  dealerGroup      DealerGroup @relation(fields: [dealerGroupId], references: [id])
+  territory        Territory   @relation(fields: [territoryId], references: [id])
+  assignedAssociate Associate? @relation(fields: [assignedAssociateId], references: [id])
+
+  contacts           Contact[]
+  interactions       Interaction[]
+  pitches            Pitch[]
+  leads              Lead[]
+  opportunities      Opportunity[]
+  applications       Application[]
+  exceptionRequests  ExceptionRequest[]
+  tierEvaluations    TierEvaluation[]
+  crossSellSignals   CrossSellSignal[]
+  onboardingCases    OnboardingCase[]
+  escalations        Escalation[]
+
+  @@index([territoryId])
+  @@index([assignedAssociateId])
+  @@index([dealerGroupId])
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  dealerGroupId String
+  rooftopId     String?
+  personaType   ContactPersona
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  dealerGroup DealerGroup @relation(fields: [dealerGroupId], references: [id])
+  rooftop     Rooftop?    @relation(fields: [rooftopId], references: [id])
+
+  interactions      Interaction[]
+  pitches           Pitch[]
+  exceptionRequests ExceptionRequest[]
+
+  @@index([dealerGroupId])
+  @@index([rooftopId])
+}
+
+model Territory {
+  id        String   @id @default(cuid())
+  name      String
+  region    String
+  createdAt DateTime @default(now())
+
+  rooftops Rooftop[]
+  team     Team?
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  leaderId    String
+  territoryId String   @unique
+  createdAt   DateTime @default(now())
+
+  leader    User      @relation(fields: [leaderId], references: [id])
+  territory Territory @relation(fields: [territoryId], references: [id])
+
+  associates Associate[]
+  pitchGoals PitchGoal[] @relation("PitchGoalTeamOwner")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  associate Associate?
+  teamsLed  Team[]
+
+  auditEvents          AuditEvent[]
+  approvalRequestsMade  ApprovalRequest[] @relation("ApprovalRequestRequester")
+  approvalRequestsFinal ApprovalRequest[] @relation("ApprovalRequestDecider")
+  approvalStepsDecided  ApprovalStep[]    @relation("ApprovalStepDecider")
+  approvalStepsDelegated ApprovalStep[]   @relation("ApprovalStepDelegate")
+  stipsOwned            Stip[]
+  escalationsRaised     Escalation[]
+}
+
+model Associate {
+  id       String   @id @default(cuid())
+  userId   String   @unique
+  teamId   String
+  hireDate DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
+
+  rooftops          Rooftop[]
+  interactions      Interaction[]
+  pitches           Pitch[]
+  pitchGoals        PitchGoal[]         @relation("PitchGoalAssociateOwner")
+  leadsRouted       Lead[]
+  opportunities     Opportunity[]
+  exceptionRequests ExceptionRequest[]
+  onboardingCases   OnboardingCase[]
+
+  @@index([teamId])
+}
+
+// ============================================================
+// Sales motion
+// ============================================================
+
+model Interaction {
+  id          String           @id @default(cuid())
+  rooftopId   String
+  contactId   String?
+  associateId String
+  type        InteractionType
+  notes       String?
+  occurredAt  DateTime
+  createdAt   DateTime         @default(now())
+
+  rooftop   Rooftop    @relation(fields: [rooftopId], references: [id])
+  contact   Contact?   @relation(fields: [contactId], references: [id])
+  associate Associate  @relation(fields: [associateId], references: [id])
+
+  @@index([rooftopId])
+  @@index([associateId])
+  @@index([occurredAt])
+}
+
+model Pitch {
+  id             String       @id @default(cuid())
+  rooftopId      String
+  contactId      String
+  associateId    String
+  pitchGoalId    String?
+  productPitched ProductType
+  outcome        PitchOutcome
+  objection      String?
+  occurredAt     DateTime
+  createdAt      DateTime     @default(now())
+
+  rooftop   Rooftop   @relation(fields: [rooftopId], references: [id])
+  contact   Contact   @relation(fields: [contactId], references: [id])
+  associate Associate @relation(fields: [associateId], references: [id])
+  pitchGoal PitchGoal? @relation(fields: [pitchGoalId], references: [id])
+
+  @@index([rooftopId])
+  @@index([associateId])
+  @@index([occurredAt])
+}
+
+model PitchGoal {
+  id            String             @id @default(cuid())
+  ownerType     PitchGoalOwnerType
+  associateId   String?
+  teamId        String?
+  period        DateTime
+  targetCount   Int
+  productFocus  ProductType?
+  createdAt     DateTime           @default(now())
+
+  associate Associate? @relation("PitchGoalAssociateOwner", fields: [associateId], references: [id])
+  team      Team?      @relation("PitchGoalTeamOwner", fields: [teamId], references: [id])
+
+  pitches Pitch[]
+
+  @@index([associateId])
+  @@index([teamId])
+  @@index([period])
+}
+
+model RoutingRule {
+  id            String   @id @default(cuid())
+  name          String
+  priority      Int
+  criteria      Json
+  targetAssociateId String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  leads Lead[]
+
+  @@index([active])
+}
+
+model Lead {
+  id                String      @id @default(cuid())
+  rooftopId         String
+  source            String
+  status            LeadStatus  @default(NEW)
+  consumerName      String
+  productInterest   ProductType
+  routingRuleId     String?
+  routedAssociateId String?
+  reasonCodes       Json?
+  slaDueAt          DateTime
+  slaBreachedAt     DateTime?
+  receivedAt        DateTime    @default(now())
+  workedAt          DateTime?
+  createdAt         DateTime    @default(now())
+
+  rooftop         Rooftop      @relation(fields: [rooftopId], references: [id])
+  routingRule     RoutingRule? @relation(fields: [routingRuleId], references: [id])
+  routedAssociate Associate?   @relation(fields: [routedAssociateId], references: [id])
+
+  @@index([rooftopId])
+  @@index([routedAssociateId])
+  @@index([status])
+  @@index([slaDueAt])
+}
+
+model DealStage {
+  id                 String   @id @default(cuid())
+  name               String
+  sortOrder          Int
+  defaultProbability Int
+  isClosed           Boolean  @default(false)
+  isWon              Boolean  @default(false)
+
+  opportunities Opportunity[]
+}
+
+model Opportunity {
+  id            String      @id @default(cuid())
+  rooftopId     String
+  associateId   String
+  productType   ProductType
+  dealStageId   String
+  expectedValue Float
+  closeDate     DateTime
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  rooftop   Rooftop   @relation(fields: [rooftopId], references: [id])
+  associate Associate @relation(fields: [associateId], references: [id])
+  dealStage DealStage @relation(fields: [dealStageId], references: [id])
+
+  applications Application[]
+
+  @@index([rooftopId])
+  @@index([associateId])
+  @@index([dealStageId])
+}
+
+model Application {
+  id            String            @id @default(cuid())
+  opportunityId String
+  rooftopId     String
+  status        ApplicationStatus @default(SUBMITTED)
+  submittedAt   DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id])
+  rooftop     Rooftop     @relation(fields: [rooftopId], references: [id])
+
+  stips     Stip[]
+  fundedDeal FundedDeal?
+
+  @@index([opportunityId])
+  @@index([rooftopId])
+}
+
+model Stip {
+  id          String     @id @default(cuid())
+  applicationId String
+  description String
+  status      StipStatus @default(OUTSTANDING)
+  ownerId     String
+  agingSince  DateTime   @default(now())
+  clearedAt   DateTime?
+
+  application Application @relation(fields: [applicationId], references: [id])
+  owner       User        @relation(fields: [ownerId], references: [id])
+
+  @@index([applicationId])
+  @@index([status])
+}
+
+model FundedDeal {
+  id                    String   @id @default(cuid())
+  applicationId         String   @unique
+  fundedAmount          Float
+  fundedAt              DateTime
+  fundingCycleTimeDays  Int?
+  createdAt             DateTime @default(now())
+
+  application       Application        @relation(fields: [applicationId], references: [id])
+  exceptionRequests ExceptionRequest[]
+}
+
+// ============================================================
+// Commercial & programs
+// ============================================================
+
+model PricingProgram {
+  id          String   @id @default(cuid())
+  name        String
+  productType ProductType
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  rateSheets        RateSheet[]
+  exceptionRequests ExceptionRequest[]
+}
+
+model RateSheet {
+  id               String    @id @default(cuid())
+  pricingProgramId String
+  effectiveFrom    DateTime
+  effectiveTo      DateTime?
+  rateData         Json
+  createdAt        DateTime  @default(now())
+
+  pricingProgram    PricingProgram      @relation(fields: [pricingProgramId], references: [id])
+  exceptionRequests ExceptionRequest[]
+
+  @@index([pricingProgramId])
+  @@index([effectiveFrom])
+}
+
+model ExceptionRequest {
+  id                String                @id @default(cuid())
+  rooftopId         String
+  contactId         String?
+  associateId       String
+  requestType       ExceptionRequestType
+  currentProgramId  String?
+  rateSheetId       String?
+  requestedTerms    Json
+  rationale         String
+  dollarAmount      Float?
+  approvalRequestId String?               @unique
+  convertedFundedDealId String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  rooftop           Rooftop         @relation(fields: [rooftopId], references: [id])
+  contact           Contact?        @relation(fields: [contactId], references: [id])
+  associate         Associate       @relation(fields: [associateId], references: [id])
+  currentProgram    PricingProgram? @relation(fields: [currentProgramId], references: [id])
+  rateSheet         RateSheet?      @relation(fields: [rateSheetId], references: [id])
+  approvalRequest   ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+  convertedFundedDeal FundedDeal?   @relation(fields: [convertedFundedDealId], references: [id])
+
+  @@index([rooftopId])
+  @@index([associateId])
+}
+
+model LoyaltyTier {
+  id           String   @id @default(cuid())
+  name         String
+  level        Int
+  minThreshold Json
+  description  String?
+
+  tierEvaluations TierEvaluation[]
+
+  @@unique([level])
+}
+
+model TierEvaluation {
+  id                     String   @id @default(cuid())
+  rooftopId              String
+  tierId                 String
+  evaluatedAt            DateTime @default(now())
+  reasonCodes            Json
+  thresholdDistance      Float
+  downTierRisk           Boolean  @default(false)
+  estimatedDollarImpact  Float?
+  dealerVisibleAt        DateTime?
+  createdAt              DateTime @default(now())
+
+  rooftop Rooftop     @relation(fields: [rooftopId], references: [id])
+  tier    LoyaltyTier @relation(fields: [tierId], references: [id])
+
+  @@index([rooftopId])
+  @@index([evaluatedAt])
+  @@index([downTierRisk])
+}
+
+model CrossSellSignal {
+  id             String           @id @default(cuid())
+  rooftopId      String
+  missingProduct ProductType
+  confidence     Float?
+  status         CrossSellStatus  @default(OPEN)
+  identifiedAt   DateTime         @default(now())
+  actionedAt     DateTime?
+
+  rooftop Rooftop @relation(fields: [rooftopId], references: [id])
+
+  @@index([rooftopId])
+  @@index([status])
+}
+
+// ============================================================
+// Shared services
+// ============================================================
+
+model ApprovalPolicy {
+  id                 String   @id @default(cuid())
+  name               String
+  triggerType        ApprovalTriggerType
+  thresholdConditions Json
+  approverRoleChain  Json
+  slaHours           Int
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  approvalRequests ApprovalRequest[]
+
+  @@index([triggerType])
+  @@index([active])
+}
+
+model ApprovalRequest {
+  id                String                @id @default(cuid())
+  policyId          String
+  triggerType       ApprovalTriggerType
+  triggerEntityId   String
+  reasonCodes       Json
+  status            ApprovalRequestStatus @default(PENDING)
+  requestedById     String
+  requestedAt       DateTime              @default(now())
+  decidedAt         DateTime?
+  decidedById       String?
+  decisionRationale String?
+
+  policy      ApprovalPolicy @relation(fields: [policyId], references: [id])
+  requestedBy User           @relation("ApprovalRequestRequester", fields: [requestedById], references: [id])
+  decidedBy   User?          @relation("ApprovalRequestDecider", fields: [decidedById], references: [id])
+
+  steps             ApprovalStep[]
+  exceptionRequest  ExceptionRequest?
+  onboardingCase    OnboardingCase?
+  escalation        Escalation?
+
+  @@index([policyId])
+  @@index([status])
+  @@index([triggerType, triggerEntityId])
+}
+
+model ApprovalStep {
+  id                String             @id @default(cuid())
+  approvalRequestId String
+  stepOrder         Int
+  approverRole      UserRole
+  status            ApprovalStepStatus @default(PENDING)
+  decidedAt         DateTime?
+  decidedById       String?
+  delegatedToId     String?
+  rationale         String?
+  createdAt         DateTime           @default(now())
+
+  approvalRequest ApprovalRequest @relation(fields: [approvalRequestId], references: [id])
+  decidedBy       User?           @relation("ApprovalStepDecider", fields: [decidedById], references: [id])
+  delegatedTo     User?           @relation("ApprovalStepDelegate", fields: [delegatedToId], references: [id])
+
+  @@index([approvalRequestId])
+  @@index([status])
+}
+
+model Entitlement {
+  id         String    @id @default(cuid())
+  role       UserRole
+  moduleId   String
+  capability String
+  dataScope  DataScope
+  allowed    Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([role, moduleId, capability])
+  @@index([moduleId])
+}
+
+model ModuleManifest {
+  id                  String   @id @default(cuid())
+  moduleId            String   @unique
+  name                String
+  enabledAssociate    Boolean  @default(true)
+  enabledLeader       Boolean  @default(true)
+  enabledAdmin        Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model AuditEvent {
+  id                 String   @id @default(cuid())
+  actorId            String
+  actorRole          UserRole
+  action             String
+  entityType         String
+  entityId           String
+  before             Json?
+  after              Json?
+  timestamp          DateTime @default(now())
+  complianceRelevant Boolean  @default(false)
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([complianceRelevant])
+  @@index([timestamp])
+}
+
+model Signal {
+  id           String   @id @default(cuid())
+  type         String
+  payload      Json
+  sourceModule String
+  entityType   String?
+  entityId     String?
+  emittedAt    DateTime @default(now())
+
+  @@index([type])
+  @@index([entityType, entityId])
+  @@index([emittedAt])
+}
+
+model ContentAsset {
+  id             String    @id @default(cuid())
+  title          String
+  assetType      String
+  personaTags    Json
+  productTags    Json
+  programTags    Json
+  body           String
+  lastVerifiedAt DateTime
+  createdAt      DateTime  @default(now())
+
+  @@index([lastVerifiedAt])
+}
+
+model Playbook {
+  id             String       @id @default(cuid())
+  title          String
+  contactPersona ContactPersona
+  productType    ProductType
+  steps          Json
+  createdAt      DateTime     @default(now())
+}
+
+model Certification {
+  id          String   @id @default(cuid())
+  name        String
+  programId   String?
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model OnboardingCase {
+  id                String           @id @default(cuid())
+  rooftopId         String
+  associateId       String
+  status            OnboardingStatus @default(OPEN)
+  checklist         Json
+  approvalRequestId String?          @unique
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  rooftop         Rooftop          @relation(fields: [rooftopId], references: [id])
+  associate       Associate        @relation(fields: [associateId], references: [id])
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+
+  @@index([rooftopId])
+  @@index([status])
+}
+
+model Escalation {
+  id                String            @id @default(cuid())
+  rooftopId         String
+  raisedById        String
+  category          String
+  description       String
+  status            EscalationStatus  @default(OPEN)
+  approvalRequestId String?           @unique
+  resolutionNotes   String?
+  resolvedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  rooftop         Rooftop          @relation(fields: [rooftopId], references: [id])
+  raisedBy        User             @relation(fields: [raisedById], references: [id])
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+
+  @@index([rooftopId])
+  @@index([status])
+}
+
+model MetricSnapshot {
+  id               String       @id @default(cuid())
+  metricKey        String
+  entityType       String
+  entityId         String
+  value            Float
+  source           MetricSource
+  asOf             DateTime
+  freshnessSeconds Int
+  createdAt        DateTime     @default(now())
+
+  @@index([metricKey, entityType, entityId])
+  @@index([asOf])
+}
