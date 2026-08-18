@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { Prisma } from "../lib/generated/prisma/client";
+import type { ModuleId } from "../lib/platform/module-ids";
 import { createRng } from "./seed/rng";
 import {
   REGIONS,
@@ -1125,6 +1126,60 @@ async function main() {
     prisma.certification.create({ data: { name: "Dealer CRM Suite Certification", programId: softwareProgram.id, description: "Required to demo and sell the software product." } }),
     prisma.certification.create({ data: { name: "Platform Fundamentals", programId: null, description: "General onboarding certification for all new associates." } }),
   ]);
+
+  // ---------------------------------------------------------------
+  // Platform: Entitlement + ModuleManifest (drives nav + scope filtering)
+  // ---------------------------------------------------------------
+  console.log("Seeding entitlements and module manifest...");
+  // Per-role dataScope for each module's "view" capability — mirrors spec Section 5's
+  // persona table: associates see their own book, leaders see their team's territory,
+  // and admin only sees modules explicitly scoped GLOBAL (no individual deal detail).
+  type Scope = "OWN" | "TEAM" | "GLOBAL" | "NONE";
+  const MODULE_SCOPE_MATRIX: Record<ModuleId, { ASSOCIATE: Scope; LEADER: Scope; ADMIN: Scope }> = {
+    "dealer-account-360": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "pricing-exceptions": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "pitching": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "closing-deals": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "lead-routing": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "loyalty-tier": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "cross-sell": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "dealer-onboarding": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "escalations-disputes": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "NONE" },
+    "forecasting-pipeline": { ASSOCIATE: "NONE", LEADER: "TEAM", ADMIN: "NONE" },
+    "performance-insights": { ASSOCIATE: "OWN", LEADER: "TEAM", ADMIN: "GLOBAL" },
+    "enablement-content": { ASSOCIATE: "GLOBAL", LEADER: "GLOBAL", ADMIN: "GLOBAL" },
+    "admin-console": { ASSOCIATE: "NONE", LEADER: "NONE", ADMIN: "GLOBAL" },
+  };
+
+  for (const [moduleId, scopes] of Object.entries(MODULE_SCOPE_MATRIX)) {
+    const moduleName = moduleId
+      .split("-")
+      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .join(" ");
+    await prisma.moduleManifest.create({
+      data: {
+        moduleId,
+        name: moduleName,
+        enabledAssociate: true,
+        enabledLeader: true,
+        enabledAdmin: true,
+      },
+    });
+    for (const role of ["SALES_ASSOCIATE", "SALES_LEADER", "ADMIN"] as const) {
+      const scopeKey = role === "SALES_ASSOCIATE" ? "ASSOCIATE" : role === "SALES_LEADER" ? "LEADER" : "ADMIN";
+      const dataScope = scopes[scopeKey];
+      await prisma.entitlement.create({
+        data: {
+          role,
+          moduleId,
+          capability: "view",
+          dataScope,
+          allowed: dataScope !== "NONE",
+        },
+      });
+    }
+  }
+  console.log(`Seeded entitlements for ${Object.keys(MODULE_SCOPE_MATRIX).length} modules.`);
 
   // ---------------------------------------------------------------
   // Bulk-insert Signals and AuditEvents

@@ -1,69 +1,97 @@
-import Image from "next/image";
+import { formatDistanceToNow } from "date-fns";
+import { getCurrentUser } from "@/lib/platform/current-user";
+import { can, scopeFilter } from "@/lib/platform/entitlements";
+import { getNavForUser } from "@/lib/platform/registry";
+import { getRecentAuditEvents } from "@/lib/services/audit";
+import { prisma } from "@/lib/prisma";
+import { StatCard } from "@/components/shared/stat-card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+const ROLE_COPY: Record<string, string> = {
+  SALES_ASSOCIATE: "Here's what's happening in your book.",
+  SALES_LEADER: "Here's what's happening across your team's territory.",
+  ADMIN: "Platform-wide configuration and activity — no individual deal detail.",
+};
+
+export default async function DashboardPage() {
+  const user = await getCurrentUser();
+
+  const [nav, recentAudit, hasAccountAccess] = await Promise.all([
+    getNavForUser(user),
+    getRecentAuditEvents(8),
+    can(user, "dealer-account-360"),
+  ]);
+
+  let rooftopCount: number | null = null;
+  let downTierCount: number | null = null;
+  if (hasAccountAccess) {
+    const rooftopWhere = await scopeFilter(user, "Rooftop", "dealer-account-360");
+    [rooftopCount, downTierCount] = await Promise.all([
+      prisma.rooftop.count({ where: rooftopWhere }),
+      prisma.tierEvaluation.count({ where: { downTierRisk: true, rooftop: rooftopWhere } }),
+    ]);
+  }
+
+  const [contentCount, dealerGroupCount] = await Promise.all([
+    prisma.contentAsset.count(),
+    prisma.dealerGroup.count(),
+  ]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome, {user.name.split(" ")[0]}</h1>
+        <p className="text-sm text-muted-foreground">{ROLE_COPY[user.role]}</p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {rooftopCount !== null ? (
+          <StatCard
+            label={user.role === "SALES_LEADER" ? "Rooftops in your territory" : "Rooftops in your book"}
+            value={rooftopCount}
+          />
+        ) : (
+          <StatCard label="Dealer groups (platform-wide)" value={dealerGroupCount} />
+        )}
+        {downTierCount !== null && (
+          <StatCard label="Down-tier risk in scope" value={downTierCount} tone="warning" />
+        )}
+        <StatCard label="Content assets" value={contentCount} />
+        <StatCard label="Modules entitled" value={nav.length} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Recent activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {recentAudit.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {recentAudit.map((event) => (
+                <li key={event.id} className="flex items-center justify-between gap-3 border-b pb-3 last:border-0 last:pb-0">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{event.action}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {event.actor.name} &middot; {event.entityType}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {event.complianceRelevant && <Badge variant="destructive">Compliance</Badge>}
+                    <time className="text-xs text-nowrap text-muted-foreground" dateTime={event.timestamp.toISOString()}>
+                      {formatDistanceToNow(event.timestamp, { addSuffix: true })}
+                    </time>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
