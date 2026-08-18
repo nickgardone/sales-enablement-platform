@@ -31,3 +31,6 @@ Build one phase at a time (spec Section 13); each phase ends with a running app.
 ## Scripts
 - `npm run db:reset` — drop, migrate, reseed. Safe to run repeatedly.
 - `npm run db:seed` — idempotent, deterministic (fixed seed).
+
+## Git workflow
+Commit at the end of each completed phase (or other logical checkpoint) and push to GitHub — the user wants work landed on the remote as it's done, not left local. No need to ask before pushing to `main` on this repo.
