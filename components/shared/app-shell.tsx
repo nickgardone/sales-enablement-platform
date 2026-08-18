@@ -36,7 +36,7 @@ export function AppShell({
 }) {
   return (
     <div className="flex min-h-screen w-full">
-      <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex print:hidden">
         <div className="flex h-14 items-center border-b border-sidebar-border px-4">
           <Link href="/" className="text-sm font-semibold">
             Sales Enablement
@@ -68,7 +68,7 @@ export function AppShell({
         </div>
       </aside>
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 print:hidden">
           <span className="text-sm text-muted-foreground">{ROLE_VIEW_LABEL[user.role]}</span>
           <div className="flex items-center gap-2">
             <NotificationBell signals={notificationSignals} />

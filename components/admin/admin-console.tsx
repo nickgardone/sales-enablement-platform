@@ -8,31 +8,32 @@ import { RoutingRulesTab } from "./routing-rules-tab";
 import { TierLogicTab } from "./tier-logic-tab";
 import { AuditLogTab, type AuditLogRow } from "./audit-log-tab";
 import { DataTab } from "./data-tab";
+import { ApproverQueue } from "@/components/pricing-exceptions/approver-queue";
+import { getApproverQueueForRole } from "@/lib/modules/pricing-exceptions/queries";
 import type { PolicyRow } from "./policy-editor";
 import type { UserRole, DataScope } from "@/lib/platform/types";
 
 export async function AdminConsole() {
-  const [policyRows, entitlementRows, manifestRows, routingRuleRows, associateUsers, tierRows, auditRows, counts] = await Promise.all([
-    prisma.approvalPolicy.findMany({ orderBy: { name: "asc" } }),
-    prisma.entitlement.findMany({ where: { capability: "view" } }),
-    prisma.moduleManifest.findMany(),
-    prisma.routingRule.findMany({ orderBy: { priority: "asc" } }),
-    // RoutingRule.targetAssociateId has no Prisma relation (it's a bare scalar) —
-    // join manually rather than add one just for this display lookup.
-    prisma.associate.findMany({ include: { user: { select: { name: true } } } }),
-    prisma.loyaltyTier.findMany(),
-    prisma.auditEvent.findMany({
-      orderBy: { timestamp: "desc" },
-      take: 100,
-      include: { actor: { select: { name: true, role: true } } },
-    }),
-    Promise.all([
-      prisma.rooftop.count(),
-      prisma.user.count(),
-      prisma.opportunity.count(),
-      prisma.auditEvent.count(),
-    ]),
-  ]);
+  const [policyRows, entitlementRows, manifestRows, routingRuleRows, associateUsers, tierRows, auditRows, counts, approverQueue] =
+    await Promise.all([
+      prisma.approvalPolicy.findMany({ orderBy: { name: "asc" } }),
+      prisma.entitlement.findMany({ where: { capability: "view" } }),
+      prisma.moduleManifest.findMany(),
+      prisma.routingRule.findMany({ orderBy: { priority: "asc" } }),
+      // RoutingRule.targetAssociateId has no Prisma relation (it's a bare scalar) —
+      // join manually rather than add one just for this display lookup.
+      prisma.associate.findMany({ include: { user: { select: { name: true } } } }),
+      prisma.loyaltyTier.findMany(),
+      prisma.auditEvent.findMany({
+        orderBy: { timestamp: "desc" },
+        take: 100,
+        include: { actor: { select: { name: true, role: true } } },
+      }),
+      Promise.all([prisma.rooftop.count(), prisma.user.count(), prisma.opportunity.count(), prisma.auditEvent.count()]),
+      // Admin has NONE data-scope on the Pricing Exceptions module itself (spec: "config, not deal
+      // detail"), but still owns the high-tier approval steps routed to ADMIN — decided here instead.
+      getApproverQueueForRole("ADMIN"),
+    ]);
 
   const policies: PolicyRow[] = policyRows.map((p) => {
     const conditions = (p.thresholdConditions ?? {}) as { minAmount?: number; maxAmount?: number };
@@ -103,6 +104,9 @@ export async function AdminConsole() {
       <Tabs defaultValue="approvals">
         <TabsList>
           <TabsTrigger value="approvals">Approvals</TabsTrigger>
+          <TabsTrigger value="approver-queue">
+            Approver queue{approverQueue.length > 0 ? ` (${approverQueue.length})` : ""}
+          </TabsTrigger>
           <TabsTrigger value="entitlements">Entitlements</TabsTrigger>
           <TabsTrigger value="modules">Modules</TabsTrigger>
           <TabsTrigger value="routing">Lead Routing</TabsTrigger>
@@ -112,6 +116,9 @@ export async function AdminConsole() {
         </TabsList>
         <TabsContent value="approvals">
           <ApprovalsTab policies={policies} />
+        </TabsContent>
+        <TabsContent value="approver-queue">
+          <ApproverQueue rows={approverQueue} title="Admin approver queue" />
         </TabsContent>
         <TabsContent value="entitlements">
           <EntitlementsTab rows={entitlementMatrix} />

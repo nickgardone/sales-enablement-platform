@@ -2,13 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@/lib/generated/prisma/client";
 import { getCurrentUser } from "@/lib/platform/current-user";
 import { can } from "@/lib/platform/entitlements";
 import type { CurrentUser } from "@/lib/platform/types";
 import { recordAuditEvent } from "@/lib/services/audit";
 import { emitSignal } from "@/lib/services/signals";
-import { submitForApproval } from "@/lib/services/approvals";
+import { submitExceptionRequest } from "@/lib/modules/pricing-exceptions/actions";
 
 const MODULE_ID = "dealer-account-360";
 
@@ -136,6 +135,11 @@ export async function shareContent(input: { rooftopId: string; contactId: string
   return share;
 }
 
+// Delegates to the canonical implementation in the pricing-exceptions module
+// (spec principle 4: approvals-triggering logic is a service, not
+// reimplemented per module) — Account 360's dialog just supplies the
+// rooftop-context inputs. A "use server" file may only export async
+// functions, not re-export bindings, hence the thin wrapper.
 export async function startExceptionRequest(input: {
   rooftopId: string;
   contactId: string | null;
@@ -143,53 +147,7 @@ export async function startExceptionRequest(input: {
   dollarAmount: number;
   rationale: string;
 }) {
-  const { user, rooftop } = await requireAccountAccess(input.rooftopId);
-  const associateId = resolveAssociateId(user, rooftop);
-
-  const exceptionRequest = await prisma.exceptionRequest.create({
-    data: {
-      rooftopId: input.rooftopId,
-      contactId: input.contactId,
-      associateId,
-      requestType: input.requestType,
-      requestedTerms: {} as Prisma.InputJsonValue,
-      rationale: input.rationale,
-      dollarAmount: input.dollarAmount,
-    },
-  });
-
-  // First real caller of the approvals service (spec principle 4) outside of seed data —
-  // routes through the same selectPolicy() logic the admin console's routing tester exercises.
-  const { approvalRequest } = await submitForApproval({
-    triggerType: "EXCEPTION_REQUEST",
-    triggerEntityId: exceptionRequest.id,
-    requestedById: user.id,
-    context: { amount: input.dollarAmount },
-  });
-
-  await prisma.exceptionRequest.update({
-    where: { id: exceptionRequest.id },
-    data: { approvalRequestId: approvalRequest.id },
-  });
-
-  await emitSignal({
-    type: "exception.submitted",
-    payload: { exceptionRequestId: exceptionRequest.id, rooftopId: input.rooftopId, amount: input.dollarAmount, requestType: input.requestType },
-    sourceModule: "pricing-exceptions",
-    entityType: "ExceptionRequest",
-    entityId: exceptionRequest.id,
-  });
-  await recordAuditEvent({
-    actor: user,
-    action: "exception.submitted",
-    entityType: "ExceptionRequest",
-    entityId: exceptionRequest.id,
-    after: { requestType: input.requestType, dollarAmount: input.dollarAmount },
-    complianceRelevant: true,
-  });
-
-  revalidatePath(`/accounts/${input.rooftopId}`);
-  return exceptionRequest;
+  return submitExceptionRequest(input);
 }
 
 export async function createOpportunity(input: {
