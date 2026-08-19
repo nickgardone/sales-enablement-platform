@@ -10,6 +10,8 @@ import { TierPanel } from "@/components/dealer-account-360/tier-panel";
 import { PerformancePane } from "@/components/dealer-account-360/performance-pane";
 import { CompetitivePositionPane } from "@/components/dealer-account-360/competitive-position-pane";
 import { ActivityTimeline } from "@/components/dealer-account-360/activity-timeline";
+import { VisitBriefDialog } from "@/components/dealer-account-360/visit-brief-dialog";
+import { AssistantPanel } from "@/components/dealer-account-360/assistant-panel";
 import {
   getActivityTimeline,
   getCompetitivePosition,
@@ -19,6 +21,7 @@ import {
   getRooftopHeader,
   getTierPanel,
 } from "@/lib/modules/dealer-account-360/queries";
+import { summarizeAccount, suggestNextAction } from "@/lib/services/assistant/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,30 +37,39 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const header = await getRooftopHeader(id);
   if (!header) notFound();
 
-  const [contactGroups, tierPanel, performance, competitive, timeline, contentAssets] = await Promise.all([
+  const [contactGroups, tierPanel, performance, competitive, timeline, contentAssets, assistantSummary, assistantSuggestions] = await Promise.all([
     getContactsByPersona(id),
     getTierPanel(id),
     getPerformanceTrend(id),
     getCompetitivePosition(id),
     getActivityTimeline(id),
     getContentAssetOptions(),
+    summarizeAccount(id),
+    suggestNextAction(id),
   ]);
 
   const flatContacts = contactGroups.flatMap((g) =>
     g.contacts.map((c) => ({ id: c.id, name: `${c.firstName} ${c.lastName}`, personaType: c.personaType }))
   );
+  const assistantCitationCount = new Set(
+    [...assistantSummary.citations, ...assistantSuggestions.citations].map((c) => `${c.entityType}:${c.entityId}`)
+  ).size;
 
   return (
     <div className="space-y-6">
       <AccountHeader header={header} />
-      <AccountActions rooftopId={id} contacts={flatContacts} contentAssets={contentAssets} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <AccountActions rooftopId={id} contacts={flatContacts} contentAssets={contentAssets} />
+        <VisitBriefDialog rooftopId={id} availablePersonas={contactGroups.map((g) => g.persona)} />
+      </div>
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
-          <PerformancePane series={performance} />
+          <PerformancePane series={performance} rooftopId={id} />
           <CompetitivePositionPane rows={competitive} />
           <ActivityTimeline items={timeline} />
         </div>
         <div className="space-y-6">
+          <AssistantPanel summary={assistantSummary.output} suggestions={assistantSuggestions.output} citationCount={assistantCitationCount} />
           <TierPanel data={tierPanel} />
           <ContactsPanel groups={contactGroups} />
         </div>

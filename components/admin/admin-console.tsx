@@ -8,10 +8,15 @@ import { RoutingRulesTab } from "./routing-rules-tab";
 import { TierLogicTab } from "./tier-logic-tab";
 import { AuditLogTab, type AuditLogRow } from "./audit-log-tab";
 import { DataTab } from "./data-tab";
+import { ActionRegistryTab } from "./action-registry-tab";
 import { ApproverQueue } from "@/components/pricing-exceptions/approver-queue";
 import { getApproverQueueForRole } from "@/lib/modules/pricing-exceptions/queries";
 import type { PolicyRow } from "./policy-editor";
 import type { UserRole, DataScope } from "@/lib/platform/types";
+// Side-effect import: populates the action registry (spec Section 11's
+// "hook for later") the first time the Admin Console is rendered.
+import "@/lib/services/action-registry-init";
+import { listActions } from "@/lib/services/action-registry";
 
 export async function AdminConsole() {
   const [policyRows, entitlementRows, manifestRows, routingRuleRows, associateUsers, tierRows, auditRows, counts, approverQueue] =
@@ -94,6 +99,7 @@ export async function AdminConsole() {
   }));
 
   const [rooftops, users, opportunities, auditEventCount] = counts;
+  const registeredActions = listActions();
 
   return (
     <div className="space-y-4">
@@ -113,6 +119,7 @@ export async function AdminConsole() {
           <TabsTrigger value="tiers">Loyalty Tiers</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
+          <TabsTrigger value="actions">Action Registry</TabsTrigger>
         </TabsList>
         <TabsContent value="approvals">
           <ApprovalsTab policies={policies} />
@@ -137,6 +144,9 @@ export async function AdminConsole() {
         </TabsContent>
         <TabsContent value="data">
           <DataTab counts={{ rooftops, users, opportunities, auditEvents: auditEventCount }} />
+        </TabsContent>
+        <TabsContent value="actions">
+          <ActionRegistryTab actions={registeredActions} />
         </TabsContent>
       </Tabs>
     </div>

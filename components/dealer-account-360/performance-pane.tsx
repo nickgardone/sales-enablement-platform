@@ -5,9 +5,10 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MetricCard } from "@/components/shared/metric-card";
+import { MetricExplainButton } from "@/components/dealer-account-360/metric-explain-button";
 import type { MetricSeries } from "@/lib/modules/dealer-account-360/types";
 
-export function PerformancePane({ series }: { series: MetricSeries[] }) {
+export function PerformancePane({ series, rooftopId }: { series: MetricSeries[]; rooftopId: string }) {
   const [selectedKey, setSelectedKey] = useState(series[0]?.metricKey ?? "");
   const selected = series.find((s) => s.metricKey === selectedKey) ?? series[0];
 
@@ -36,15 +37,10 @@ export function PerformancePane({ series }: { series: MetricSeries[] }) {
           {series.map(
             (s) =>
               s.latest && (
-                <MetricCard
-                  key={s.metricKey}
-                  label={s.label}
-                  value={s.latest.value}
-                  unit={s.unit}
-                  source={s.latest.source}
-                  asOf={s.latest.asOf}
-                  className="shadow-none"
-                />
+                <div key={s.metricKey} className="relative">
+                  <MetricCard label={s.label} value={s.latest.value} unit={s.unit} source={s.latest.source} asOf={s.latest.asOf} className="shadow-none" />
+                  <MetricExplainButton metricKey={s.metricKey} rooftopId={rooftopId} />
+                </div>
               )
           )}
         </div>

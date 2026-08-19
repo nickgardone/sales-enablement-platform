@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { previewExceptionRouting, submitExceptionRequest } from "@/lib/modules/pricing-exceptions/actions";
+import { draftExceptionJustification } from "@/lib/services/assistant/actions";
 import type { PolicyMatch, PolicyLike } from "@/lib/services/approvals";
 import type { ContactOption, RooftopOption } from "@/lib/modules/pricing-exceptions/types";
 
@@ -28,8 +30,10 @@ export function IntakeDialog({ rooftops, contacts }: { rooftops: RooftopOption[]
   const [dollarAmount, setDollarAmount] = useState("");
   const [rationale, setRationale] = useState("");
   const [preview, setPreview] = useState<PolicyMatch<PolicyLike> | null | "unrun">("unrun");
+  const [draftSources, setDraftSources] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const [isPreviewing, startPreviewTransition] = useTransition();
+  const [isDrafting, startDraftTransition] = useTransition();
 
   const rooftopContacts = useMemo(() => contacts.filter((c) => c.rooftopId === rooftopId), [contacts, rooftopId]);
   const rooftopItems = Object.fromEntries(rooftops.map((r) => [r.id, `${r.name} — ${r.dealerGroupName}`]));
@@ -45,6 +49,23 @@ export function IntakeDialog({ rooftops, contacts }: { rooftops: RooftopOption[]
     startPreviewTransition(async () => {
       const match = await previewExceptionRouting(amount);
       setPreview(match);
+    });
+  }
+
+  function draftWithAssistant() {
+    const amount = Number(dollarAmount);
+    if (!rooftopId || !amount || amount <= 0) {
+      toast.error("Choose a rooftop and dollar amount first.");
+      return;
+    }
+    startDraftTransition(async () => {
+      try {
+        const res = await draftExceptionJustification({ rooftopId, requestType, dollarAmount: amount });
+        setRationale(res.output);
+        setDraftSources(res.citations.map((c) => c.label));
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to draft a justification.");
+      }
     });
   }
 
@@ -180,8 +201,25 @@ export function IntakeDialog({ rooftops, contacts }: { rooftops: RooftopOption[]
           )}
 
           <div className="space-y-1">
-            <Label>Rationale</Label>
-            <Textarea value={rationale} onChange={(e) => setRationale(e.target.value)} placeholder="Why does this exception make sense?" />
+            <div className="flex items-center justify-between">
+              <Label>Rationale</Label>
+              <Button variant="ghost" size="sm" className="h-6 text-xs text-violet-700 dark:text-violet-300" onClick={draftWithAssistant} disabled={isDrafting}>
+                <Sparkles className="mr-1 h-3 w-3" /> {isDrafting ? "Drafting..." : "Draft with assistant"}
+              </Button>
+            </div>
+            <Textarea
+              value={rationale}
+              onChange={(e) => {
+                setRationale(e.target.value);
+                setDraftSources([]);
+              }}
+              placeholder="Why does this exception make sense?"
+            />
+            {draftSources.length > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                <span className="font-medium text-violet-700 dark:text-violet-300">Assistant draft</span> — sources: {draftSources.join(", ")}. Edit before submitting.
+              </p>
+            )}
           </div>
         </div>
         <DialogFooter>
