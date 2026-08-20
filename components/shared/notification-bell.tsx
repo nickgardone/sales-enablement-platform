@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Bell } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -11,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { formatDealerVisibility } from "@/lib/platform/dealer-visibility";
 
 const SIGNAL_LABEL: Record<string, string> = {
   "tier.risk.detected": "Down-tier risk detected",
@@ -28,7 +30,12 @@ export type NotificationSignal = {
   type: string;
   emittedAt: string;
   sourceModule: string;
+  payload: Record<string, unknown> | null;
 };
+
+function rooftopIdOf(payload: Record<string, unknown> | null): string | null {
+  return typeof payload?.rooftopId === "string" ? payload.rooftopId : null;
+}
 
 export function NotificationBell({ signals }: { signals: NotificationSignal[] }) {
   return (
@@ -51,14 +58,33 @@ export function NotificationBell({ signals }: { signals: NotificationSignal[] })
             <p className="px-2 py-3 text-sm text-muted-foreground">Nothing new right now.</p>
           ) : (
             <ul className="max-h-80 space-y-1 overflow-y-auto">
-              {signals.map((signal) => (
-                <li key={signal.id} className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
-                  <span className="font-medium">{SIGNAL_LABEL[signal.type] ?? signal.type}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {signal.sourceModule} &middot; {formatDistanceToNow(new Date(signal.emittedAt), { addSuffix: true })}
-                  </span>
-                </li>
-              ))}
+              {signals.map((signal) => {
+                const rooftopId = rooftopIdOf(signal.payload);
+                const dealerVisibleAt = typeof signal.payload?.dealerVisibleAt === "string" ? signal.payload.dealerVisibleAt : null;
+                const body = (
+                  <>
+                    <span className="font-medium">{SIGNAL_LABEL[signal.type] ?? signal.type}</span>
+                    {signal.type === "tier.risk.detected" && dealerVisibleAt ? (
+                      <span className="text-xs text-muted-foreground">{formatDealerVisibility(dealerVisibleAt)}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {signal.sourceModule} &middot; {formatDistanceToNow(new Date(signal.emittedAt), { addSuffix: true })}
+                      </span>
+                    )}
+                  </>
+                );
+                return (
+                  <li key={signal.id}>
+                    {rooftopId ? (
+                      <Link href={`/accounts/${rooftopId}`} className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+                        {body}
+                      </Link>
+                    ) : (
+                      <div className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-sm">{body}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </DropdownMenuGroup>

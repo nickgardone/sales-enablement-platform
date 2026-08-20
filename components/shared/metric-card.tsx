@@ -4,6 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useDegradedMode } from "@/components/shared/degraded-mode-context";
 import { cn } from "@/lib/utils";
 
 export type MetricCardUnit = "count" | "currency" | "days" | "percent" | "score";
@@ -46,6 +47,11 @@ const SOURCE_LABEL: Record<MetricCardSource, string> = {
  * a MetricSnapshot value should render it through this rather than a bare number.
  */
 export function MetricCard({ label, value, unit, source, asOf, delta, className }: MetricCardProps) {
+  const { isDegraded } = useDegradedMode();
+  // While simulating an outage, a LIVE source can't actually be trusted as live
+  // anymore — show it as a cached last-known value instead of hiding it.
+  const showAsCached = isDegraded && source === "LIVE";
+
   return (
     <Card className={className}>
       <CardHeader className="pb-2">
@@ -63,11 +69,18 @@ export function MetricCard({ label, value, unit, source, asOf, delta, className 
         </div>
         <Tooltip>
           <TooltipTrigger className="inline-flex">
-            <Badge variant={source === "LIVE" ? "secondary" : "outline"} className="text-[10px] font-normal">
-              {SOURCE_LABEL[source]} &middot; {formatDistanceToNow(new Date(asOf), { addSuffix: true })}
+            <Badge
+              variant={showAsCached ? "outline" : source === "LIVE" ? "secondary" : "outline"}
+              className={cn("text-[10px] font-normal", showAsCached && "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400")}
+            >
+              {showAsCached ? "Cached (was live)" : SOURCE_LABEL[source]} &middot; {formatDistanceToNow(new Date(asOf), { addSuffix: true })}
             </Badge>
           </TooltipTrigger>
-          <TooltipContent>As of {new Date(asOf).toLocaleString()}</TooltipContent>
+          <TooltipContent>
+            {showAsCached
+              ? `Live source unreachable in degraded mode — showing the last known value as of ${new Date(asOf).toLocaleString()}.`
+              : `As of ${new Date(asOf).toLocaleString()}`}
+          </TooltipContent>
         </Tooltip>
       </CardContent>
     </Card>

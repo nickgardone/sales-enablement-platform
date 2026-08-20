@@ -15,6 +15,7 @@ import {
   shareContent,
   startExceptionRequest,
 } from "@/lib/modules/dealer-account-360/actions";
+import { useDegradedMode } from "@/components/shared/degraded-mode-context";
 
 type ContactOption = { id: string; name: string; personaType: string };
 type ContentAssetOption = { id: string; title: string; assetType: string };
@@ -55,12 +56,15 @@ function LogInteractionDialog({ rooftopId, contacts }: { rooftopId: string; cont
   const [type, setType] = useState<keyof typeof INTERACTION_TYPES>("VISIT");
   const [notes, setNotes] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { enqueueOrRun } = useDegradedMode();
 
   function submit() {
     startTransition(async () => {
       try {
-        await logInteraction({ rooftopId, contactId: contactId || null, type, notes: notes.trim() || null });
-        toast.success("Interaction logged.");
+        const ran = await enqueueOrRun("Log interaction", async () => {
+          await logInteraction({ rooftopId, contactId: contactId || null, type, notes: notes.trim() || null });
+        });
+        if (ran) toast.success("Interaction logged.");
         setNotes("");
         setOpen(false);
       } catch (e) {
@@ -119,6 +123,7 @@ function LogPitchDialog({ rooftopId, contacts }: { rooftopId: string; contacts: 
   const [outcome, setOutcome] = useState<keyof typeof PITCH_OUTCOMES>("POSITIVE");
   const [objection, setObjection] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { enqueueOrRun } = useDegradedMode();
 
   function submit() {
     if (!contactId) {
@@ -127,8 +132,10 @@ function LogPitchDialog({ rooftopId, contacts }: { rooftopId: string; contacts: 
     }
     startTransition(async () => {
       try {
-        await logPitch({ rooftopId, contactId, productPitched, outcome, objection: objection.trim() || null });
-        toast.success("Pitch logged.");
+        const ran = await enqueueOrRun("Log pitch", async () => {
+          await logPitch({ rooftopId, contactId, productPitched, outcome, objection: objection.trim() || null });
+        });
+        if (ran) toast.success("Pitch logged.");
         setObjection("");
         setOpen(false);
       } catch (e) {
@@ -212,6 +219,7 @@ function ShareContentDialog({
   const [contactId, setContactId] = useState<string>(contacts[0]?.id ?? "");
   const [contentAssetId, setContentAssetId] = useState<string>(contentAssets[0]?.id ?? "");
   const [isPending, startTransition] = useTransition();
+  const { enqueueOrRun } = useDegradedMode();
 
   const contentItems = Object.fromEntries(contentAssets.map((a) => [a.id, a.title]));
 
@@ -222,8 +230,10 @@ function ShareContentDialog({
     }
     startTransition(async () => {
       try {
-        await shareContent({ rooftopId, contactId: contactId || null, contentAssetId });
-        toast.success("Content shared.");
+        const ran = await enqueueOrRun("Share content", async () => {
+          await shareContent({ rooftopId, contactId: contactId || null, contentAssetId });
+        });
+        if (ran) toast.success("Content shared.");
         setOpen(false);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to share content.");
@@ -277,6 +287,7 @@ function StartExceptionDialog({ rooftopId, contacts }: { rooftopId: string; cont
   const [dollarAmount, setDollarAmount] = useState("");
   const [rationale, setRationale] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { enqueueOrRun } = useDegradedMode();
 
   function submit() {
     const amount = Number(dollarAmount);
@@ -290,8 +301,10 @@ function StartExceptionDialog({ rooftopId, contacts }: { rooftopId: string; cont
     }
     startTransition(async () => {
       try {
-        await startExceptionRequest({ rooftopId, contactId: contactId || null, requestType, dollarAmount: amount, rationale: rationale.trim() });
-        toast.success("Exception request submitted for approval.");
+        const ran = await enqueueOrRun("Start exception request", async () => {
+          await startExceptionRequest({ rooftopId, contactId: contactId || null, requestType, dollarAmount: amount, rationale: rationale.trim() });
+        });
+        if (ran) toast.success("Exception request submitted for approval.");
         setDollarAmount("");
         setRationale("");
         setOpen(false);
@@ -358,6 +371,7 @@ function CreateOpportunityDialog({ rooftopId }: { rooftopId: string }) {
   const [expectedValue, setExpectedValue] = useState("");
   const [closeDate, setCloseDate] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { enqueueOrRun } = useDegradedMode();
 
   function submit() {
     const value = Number(expectedValue);
@@ -371,8 +385,10 @@ function CreateOpportunityDialog({ rooftopId }: { rooftopId: string }) {
     }
     startTransition(async () => {
       try {
-        await createOpportunity({ rooftopId, productType, expectedValue: value, closeDate });
-        toast.success("Opportunity created.");
+        const ran = await enqueueOrRun("Create opportunity", async () => {
+          await createOpportunity({ rooftopId, productType, expectedValue: value, closeDate });
+        });
+        if (ran) toast.success("Opportunity created.");
         setExpectedValue("");
         setCloseDate("");
         setOpen(false);

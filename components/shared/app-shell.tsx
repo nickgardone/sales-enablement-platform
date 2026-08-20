@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { PersonaSwitcher } from "./persona-switcher";
 import { NotificationBell, type NotificationSignal } from "./notification-bell";
+import { GlobalSearch } from "./global-search";
+import { DegradedModeToggle } from "./degraded-mode-toggle";
+import { DegradedModeBanner } from "./degraded-mode-banner";
 import { NavLink } from "./nav-link";
 import { PersonaBadge } from "./persona-badge";
 import type { ModuleManifest, NavGroup } from "@/lib/platform/registry";
@@ -71,10 +74,13 @@ export function AppShell({
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 print:hidden">
           <span className="text-sm text-muted-foreground">{ROLE_VIEW_LABEL[user.role]}</span>
           <div className="flex items-center gap-2">
+            <GlobalSearch />
+            <DegradedModeToggle />
             <NotificationBell signals={notificationSignals} />
             <PersonaSwitcher currentUserId={user.id} personas={personas} />
           </div>
         </header>
+        <DegradedModeBanner />
         <main className="flex-1 overflow-y-auto bg-muted/20 p-6">{children}</main>
       </div>
     </div>

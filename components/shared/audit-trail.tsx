@@ -1,18 +1,13 @@
 import { formatDistanceToNow } from "date-fns";
-import { getAuditTrail } from "@/lib/services/audit";
+import { getAuditTrail, type AuditTrailEntityRef } from "@/lib/services/audit";
 import { Badge } from "@/components/ui/badge";
 
-// Shared audit viewer any module can drop in, scoped to one entity (spec Section 7).
-export async function AuditTrail({
-  entityType,
-  entityId,
-  limit = 25,
-}: {
-  entityType: string;
-  entityId: string;
-  limit?: number;
-}) {
-  const events = await getAuditTrail(entityType, entityId, limit);
+// Shared audit viewer any module can drop in, scoped to one or more related
+// entities (spec Section 7) — pass every entity ref that belongs to the
+// thing you're viewing (e.g. a rooftop's interactions, pitches, exceptions...)
+// since audit events are recorded per-entity, not duplicated onto ancestors.
+export async function AuditTrail({ entities, limit = 25 }: { entities: AuditTrailEntityRef[]; limit?: number }) {
+  const events = await getAuditTrail(entities, limit);
 
   if (events.length === 0) {
     return <p className="text-sm text-muted-foreground">No audit history yet.</p>;

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { previewExceptionRouting, submitExceptionRequest } from "@/lib/modules/pricing-exceptions/actions";
 import { draftExceptionJustification } from "@/lib/services/assistant/actions";
+import { useDegradedMode } from "@/components/shared/degraded-mode-context";
 import type { PolicyMatch, PolicyLike } from "@/lib/services/approvals";
 import type { ContactOption, RooftopOption } from "@/lib/modules/pricing-exceptions/types";
 
@@ -34,6 +35,7 @@ export function IntakeDialog({ rooftops, contacts }: { rooftops: RooftopOption[]
   const [isPending, startTransition] = useTransition();
   const [isPreviewing, startPreviewTransition] = useTransition();
   const [isDrafting, startDraftTransition] = useTransition();
+  const { enqueueOrRun } = useDegradedMode();
 
   const rooftopContacts = useMemo(() => contacts.filter((c) => c.rooftopId === rooftopId), [contacts, rooftopId]);
   const rooftopItems = Object.fromEntries(rooftops.map((r) => [r.id, `${r.name} — ${r.dealerGroupName}`]));
@@ -85,8 +87,10 @@ export function IntakeDialog({ rooftops, contacts }: { rooftops: RooftopOption[]
     }
     startTransition(async () => {
       try {
-        await submitExceptionRequest({ rooftopId, contactId: contactId || null, requestType, dollarAmount: amount, rationale: rationale.trim() });
-        toast.success("Exception request submitted for approval.");
+        const ran = await enqueueOrRun("Submit exception request", async () => {
+          await submitExceptionRequest({ rooftopId, contactId: contactId || null, requestType, dollarAmount: amount, rationale: rationale.trim() });
+        });
+        if (ran) toast.success("Exception request submitted for approval.");
         setDollarAmount("");
         setRationale("");
         setPreview("unrun");

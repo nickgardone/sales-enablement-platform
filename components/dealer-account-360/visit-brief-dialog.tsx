@@ -56,7 +56,7 @@ export function VisitBriefDialog({ rooftopId, availablePersonas }: { rooftopId: 
       <DialogTrigger render={<Button variant="outline" size="sm" />}>
         <Sparkles className="mr-1 h-3.5 w-3.5" /> Generate visit brief
       </DialogTrigger>
-      <DialogContent className="max-w-lg print:max-w-none print:shadow-none">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg print:max-h-none print:max-w-none print:shadow-none">
         <DialogHeader className="print:hidden">
           <DialogTitle>Visit brief</DialogTitle>
           <DialogDescription>One-click pre-visit pack generated from live account data, targeted at a chosen contact persona.</DialogDescription>

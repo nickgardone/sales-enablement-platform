@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { formatDealerVisibility } from "@/lib/platform/dealer-visibility";
 import type { TierWorklistRow } from "@/lib/modules/loyalty-tier/types";
 
 export function TierWorklistTable({ rows }: { rows: TierWorklistRow[] }) {
@@ -78,11 +79,7 @@ export function TierWorklistTable({ rows }: { rows: TierWorklistRow[] }) {
                           <li key={code}>{code.replace(/_/g, " ").toLowerCase()}</li>
                         ))}
                       </ul>
-                      {r.dealerVisibleAt && (
-                        <p className="mt-2 text-muted-foreground">
-                          Visible to dealer {formatDistanceToNow(new Date(r.dealerVisibleAt), { addSuffix: true })}
-                        </p>
-                      )}
+                      {r.dealerVisibleAt && <p className="mt-2 text-muted-foreground">{formatDealerVisibility(r.dealerVisibleAt)}</p>}
                     </PopoverContent>
                   </Popover>
                 </TableCell>

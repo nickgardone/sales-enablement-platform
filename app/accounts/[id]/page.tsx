@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getModuleAccess } from "@/lib/platform/route-guard";
 import { scopeFilter } from "@/lib/platform/entitlements";
 import { AccessRestricted } from "@/components/shared/access-restricted";
+import { AuditTrail } from "@/components/shared/audit-trail";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AccountHeader } from "@/components/dealer-account-360/account-header";
 import { AccountActions } from "@/components/dealer-account-360/account-actions";
 import { ContactsPanel } from "@/components/dealer-account-360/contacts-panel";
@@ -55,6 +57,22 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     [...assistantSummary.citations, ...assistantSuggestions.citations].map((c) => `${c.entityType}:${c.entityId}`)
   ).size;
 
+  // Audit events are recorded per-entity (an Interaction, a Pitch, an
+  // ExceptionRequest...), never duplicated onto the rooftop — so "the audit
+  // trail on this account" is the union of every entity already surfaced in
+  // its activity timeline.
+  const TIMELINE_KIND_TO_AUDIT_ENTITY_TYPE: Partial<Record<(typeof timeline)[number]["kind"], string>> = {
+    INTERACTION: "Interaction",
+    PITCH: "Pitch",
+    EXCEPTION_REQUEST: "ExceptionRequest",
+    ESCALATION: "Escalation",
+    CONTENT_SHARE: "ContentShare",
+  };
+  const auditEntities = timeline.flatMap((t) => {
+    const entityType = TIMELINE_KIND_TO_AUDIT_ENTITY_TYPE[t.kind];
+    return entityType ? [{ entityType, entityId: t.id }] : [];
+  });
+
   return (
     <div className="space-y-6">
       <AccountHeader header={header} />
@@ -67,6 +85,14 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           <PerformancePane series={performance} rooftopId={id} />
           <CompetitivePositionPane rows={competitive} />
           <ActivityTimeline items={timeline} />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Audit Trail</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AuditTrail entities={auditEntities} />
+            </CardContent>
+          </Card>
         </div>
         <div className="space-y-6">
           <AssistantPanel summary={assistantSummary.output} suggestions={assistantSuggestions.output} citationCount={assistantCitationCount} />

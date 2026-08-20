@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getModuleAccess } from "@/lib/platform/route-guard";
 import { scopeFilter } from "@/lib/platform/entitlements";
 import { AccessRestricted } from "@/components/shared/access-restricted";
+import { AuditTrail } from "@/components/shared/audit-trail";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExceptionArtifact } from "@/components/pricing-exceptions/exception-artifact";
 import { DecideStepPanel } from "@/components/pricing-exceptions/decide-step-panel";
 import { getExceptionDetail } from "@/lib/modules/pricing-exceptions/queries";
@@ -24,6 +26,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const activeStep = detail.approvalRequest?.activeStep;
   const canDecideHere = activeStep && activeStep.approverRole === user.role;
 
+  // Submission is audited against the ExceptionRequest itself; each approval
+  // decision is audited against its ApprovalStep — the full chain is the union.
+  const auditEntities = [
+    { entityType: "ExceptionRequest", entityId: detail.id },
+    ...(detail.approvalRequest?.steps.map((s) => ({ entityType: "ApprovalStep", entityId: s.id })) ?? []),
+  ];
+
   return (
     <div className="space-y-6">
       <ExceptionArtifact detail={detail} />
@@ -35,6 +44,14 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           approverRole={activeStep.approverRole}
         />
       )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Audit Trail</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AuditTrail entities={auditEntities} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { formatDealerVisibility } from "@/lib/platform/dealer-visibility";
 import type { NextActionSuggestion, VisitBriefSection } from "./types";
 
 /**
@@ -160,7 +161,7 @@ export function suggestNextAction(input: SuggestNextActionInput): NextActionSugg
     suggestions.push({
       action: "Address down-tier risk before it's dealer-visible",
       rationale: input.dealerVisibleAt
-        ? `This account is flagged for a tier drop the dealer will see on ${new Date(input.dealerVisibleAt).toLocaleDateString()}${input.estimatedDollarImpact ? ` (est. $${Math.round(input.estimatedDollarImpact).toLocaleString()} impact)` : ""}.`
+        ? `This account is flagged for a tier drop. ${formatDealerVisibility(input.dealerVisibleAt)}${input.estimatedDollarImpact ? ` (est. $${Math.round(input.estimatedDollarImpact).toLocaleString()} impact)` : ""}.`
         : "This account is flagged for down-tier risk.",
       priority: "HIGH",
     });

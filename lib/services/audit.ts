@@ -30,9 +30,19 @@ export async function recordAuditEvent(input: RecordAuditEventInput) {
   });
 }
 
-export async function getAuditTrail(entityType: string, entityId: string, limit = 50) {
+export type AuditTrailEntityRef = { entityType: string; entityId: string };
+
+/**
+ * Audit events are recorded against whichever entity a mutation actually
+ * touched (an Interaction, a Pitch, an ExceptionRequest...), never duplicated
+ * onto every ancestor. So "the audit trail on a rooftop" is the union of
+ * every entity that belongs to it — callers pass the full set of refs (e.g.
+ * from the same records the activity timeline already gathered).
+ */
+export async function getAuditTrail(entities: AuditTrailEntityRef[], limit = 50) {
+  if (entities.length === 0) return [];
   return prisma.auditEvent.findMany({
-    where: { entityType, entityId },
+    where: { OR: entities.map((e) => ({ entityType: e.entityType, entityId: e.entityId })) },
     orderBy: { timestamp: "desc" },
     take: limit,
     include: { actor: { select: { name: true, role: true } } },

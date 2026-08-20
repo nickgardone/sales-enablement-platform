@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { formatDealerVisibility } from "@/lib/platform/dealer-visibility";
 import type { TierPanelData } from "@/lib/modules/dealer-account-360/types";
 
 export function TierPanel({ data }: { data: TierPanelData }) {
@@ -32,11 +33,7 @@ export function TierPanel({ data }: { data: TierPanelData }) {
             <p className="font-medium text-destructive">
               {data.estimatedDollarImpact ? `Est. ${Math.round(data.estimatedDollarImpact).toLocaleString()} at risk` : "Tier at risk"}
             </p>
-            {data.dealerVisibleAt && (
-              <p className="mt-0.5 text-muted-foreground">
-                Visible to dealer {formatDistanceToNow(new Date(data.dealerVisibleAt), { addSuffix: true })}
-              </p>
-            )}
+            {data.dealerVisibleAt && <p className="mt-0.5 text-muted-foreground">{formatDealerVisibility(data.dealerVisibleAt)}</p>}
           </div>
         )}
 
